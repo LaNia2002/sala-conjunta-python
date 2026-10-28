@@ -1,21 +1,28 @@
+
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
+
 import {
     getAuth,
     signInAnonymously
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
+
 import {
     getDatabase,
     ref,
-    get,
     set,
     onValue
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-database.js";
 
-import * as Y from "yjs";
-import { WebrtcProvider } from "y-webrtc";
-import { yCollab } from "y-codemirror.next";
-import { EditorView, basicSetup } from "codemirror";
-import { EditorState, Compartment } from "@codemirror/state";
+import {
+    EditorView,
+    basicSetup
+} from "codemirror";
+
+import {
+    EditorState,
+    Compartment
+} from "@codemirror/state";
+
 import { python } from "@codemirror/lang-python";
 
 // CONFIGURACIÓN FIREBASE
@@ -41,24 +48,70 @@ const estado = document.getElementById("estado");
 const boton = document.getElementById("ejecutar");
 const salida = document.getElementById("salida");
 const botonLimpiar = document.getElementById("limpiar");
+const entrada = document.getElementById("entrada");
+const botonEnviar = document.getElementById("enviar");
 
-// DATOS COMPARTIDOS EN FIREBASE
+// REFERENCIAS COMPARTIDAS
 const codigoRef = ref(db, "sala/codigo");
 const consolaRef = ref(db, "sala/consola");
 
-// ESTADO DEL PROGRAMA
+// ESTADO
 let pyodide;
 let editorView;
-let ydoc;
-let ytext;
-let provider;
-
 let ejecutando = false;
-let temporizadorGuardar;
-let capturaSalida = "";
 let pythonListo = false;
+let capturaSalida = "";
+let temporizadorGuardar;
+let aplicandoCodigoRemoto = false;
 
 const editorEditable = new Compartment();
+
+const codigoInicial =
+    'nombre = input("¿Cómo te llamas? ")\\n' +
+    'print("¡Hola,", nombre, "!")\\n' +
+    'print("Bienvenido a la sala.")';
+
+// CONTROL DE PERMISOS
+function actualizarPermisos() {
+    const tieneNombre = nombreInput.value.trim().length > 0;
+    const puedeEditar = tieneNombre && Boolean(auth.currentUser);
+
+    if (editorView) {
+        editorView.dispatch({
+            effects: editorEditable.reconfigure(
+                EditorView.editable.of(puedeEditar)
+            )
+        });
+
+        editorDiv.classList.toggle(
+            "editor-bloqueado",
+            !puedeEditar
+        );
+    }
+
+    boton.disabled =
+        !puedeEditar || !pythonListo || ejecutando;
+
+    if (ejecutando) {
+        boton.textContent = "Ejecutando...";
+    } else if (!pythonListo) {
+        boton.textContent = "Preparando Python...";
+    } else {
+        boton.textContent = "Ejecutar código";
+    }
+
+    if (!auth.currentUser) {
+        estado.textContent = "Conectando con Firebase...";
+    } else if (!tieneNombre) {
+        estado.textContent = "Escribe tu nombre para participar";
+    } else if (!pythonListo) {
+        estado.textContent = "Cargando Python...";
+    } else {
+        estado.textContent = "Conectado a la sala";
+    }
+}
+
+nombreInput.addEventListener("input", actualizarPermisos);
 
 // INICIAR PYTHON
 async function iniciarPython() {
@@ -94,101 +147,50 @@ async function iniciarPython() {
     }
 }
 
-// CONTROLAR SI EL USUARIO PUEDE EDITAR
-function actualizarPermisos() {
-    const tieneNombre = nombreInput.value.trim().length > 0;
-    const puedeEditar = tieneNombre && Boolean(auth.currentUser);
-
-    if (editorView) {
-        editorView.dispatch({
-            effects: editorEditable.reconfigure(
-                EditorView.editable.of(puedeEditar)
-            )
-        });
-
-        editorDiv.classList.toggle(
-            "editor-bloqueado",
-            !puedeEditar
-        );
-    }
-
-    boton.disabled = !puedeEditar || !pythonListo || ejecutando;
-    if (ejecutando) {
-    boton.textContent = "Ejecutando...";
-} else if (!pythonListo) {
-    boton.textContent = "Preparando Python...";
-} else {
-    boton.textContent = "Ejecutar código";
-}
-
-    if (!auth.currentUser) {
-        estado.textContent = "Conectando con la sala...";
-    } else if (!tieneNombre) {
-        estado.textContent = "Escribe tu nombre para participar";
-    } else if (!pythonListo) {
-        estado.textContent = "Cargando Python...";
-    } else {
-        estado.textContent = "Conectado a la sala";
-    }
-
-    if (provider) {
-        provider.awareness.setLocalStateField("user", {
-            name: nombreInput.value.trim() || "Anónimo",
-            color: "#a78bfa",
-            colorLight: "#a78bfa55"
-        });
-    }
-}
-
-nombreInput.addEventListener("input", actualizarPermisos);
-
-// CREAR EDITOR COLABORATIVO
+// CREAR EDITOR Y CONECTAR FIREBASE
 async function iniciarSala() {
     try {
         estado.textContent = "Conectando con Firebase...";
 
         await signInAnonymously(auth);
 
-        // Documento colaborativo compartido entre participantes.
-        ydoc = new Y.Doc();
-        ytext = ydoc.getText("codigo-python");
-
-        ytext.observe(() => {
-    console.log(
-        "Código recibido o modificado:",
-        ytext.toString()
-    );
-});
-
-        provider = new WebrtcProvider(
-            "sala-conjunta-python-publica",
-            ydoc
-        );
-
-        provider.on("status", event => {
-            console.log("Estado WebRTC:", event.status);
-        });
-
-        provider.on("peers", event => {
-            console.log("Usuarios conectados:", event.webrtcPeers);
-        });
-
-        provider.awareness.setLocalStateField("user", {
-            name: nombreInput.value.trim() || "Anónimo",
-            color: "#a78bfa",
-            colorLight: "#a78bfa55"
-        });
-
         editorView = new EditorView({
             state: EditorState.create({
-                doc: ytext.toString(),
+                doc: "",
                 extensions: [
                     basicSetup,
                     python(),
                     editorEditable.of(
                         EditorView.editable.of(false)
                     ),
-                    yCollab(ytext, provider.awareness)
+
+                    // Guardar los cambios locales en Firebase.
+                    EditorView.updateListener.of(update => {
+                        if (
+                            !update.docChanged ||
+                            aplicandoCodigoRemoto ||
+                            !auth.currentUser ||
+                            !nombreInput.value.trim()
+                        ) {
+                            return;
+                        }
+
+                        clearTimeout(temporizadorGuardar);
+
+                        temporizadorGuardar = setTimeout(async () => {
+                            try {
+                                await set(
+                                    codigoRef,
+                                    editorView.state.doc.toString()
+                                );
+                            } catch (error) {
+                                console.error(
+                                    "Error guardando el código:",
+                                    error
+                                );
+                            }
+                        }, 400);
+                    })
                 ]
             }),
             parent: editorDiv
@@ -196,61 +198,58 @@ async function iniciarSala() {
 
         actualizarPermisos();
 
-        // Guardar una copia del código en Firebase.
-        // Yjs sigue siendo el responsable de combinar ediciones simultáneas.
-        ytext.observe(() => {
-            clearTimeout(temporizadorGuardar);
-
-            temporizadorGuardar = setTimeout(async () => {
-                try {
-                    if (auth.currentUser) {
-                        await set(codigoRef, ytext.toString());
-                    }
-                } catch (error) {
-                    console.error("Error guardando una copia:", error);
-                }
-            }, 1500);
-        });
-
-        // Recuperar el código guardado si la sala colaborativa
-        // está vacía. Esperamos para dar tiempo a sincronizar a los demás.
-        setTimeout(async () => {
+        // Recibir el código de todos los participantes.
+        onValue(codigoRef, async snapshot => {
             try {
-                const estados = Array.from(
-                    provider.awareness.getStates().keys()
-                );
+                const codigoGuardado = snapshot.val();
 
-                const lider = estados.length > 0
-                    ? Math.min(...estados)
-                    : null;
-
-                if (ytext.length !== 0 ||
-                    lider !== ydoc.clientID) {
+                // Si todavía no existe código, crear uno inicial.
+                if (
+                    codigoGuardado === null &&
+                    auth.currentUser
+                ) {
+                    await set(codigoRef, codigoInicial);
                     return;
                 }
 
-                const snapshot = await get(codigoRef);
-
-                if (ytext.length === 0) {
-                    const codigoGuardado = snapshot.val();
-
-                    const codigoInicial =
-                        typeof codigoGuardado === "string"
-                            ? codigoGuardado
-                            : 'nombre = input("¿Cómo te llamas? ")\\n' +
-                              'print("¡Hola,", nombre, "!")\\n' +
-                              'print("Bienvenido a la sala.")';
-
-                    ydoc.transact(() => {
-                        ytext.insert(0, codigoInicial);
-                    });
+                if (typeof codigoGuardado !== "string") {
+                    return;
                 }
-            } catch (error) {
-                console.error("Error recuperando el código:", error);
-            }
-        }, 4000);
 
-        // Escuchar los resultados compartidos.
+                // No actualizar si el editor ya tiene ese código.
+                if (
+                    editorView.state.doc.toString() ===
+                    codigoGuardado
+                ) {
+                    return;
+                }
+
+                // Aplicar el cambio remoto sin volver a guardarlo.
+                aplicandoCodigoRemoto = true;
+
+                editorView.dispatch({
+                    changes: {
+                        from: 0,
+                        to: editorView.state.doc.length,
+                        insert: codigoGuardado
+                    }
+                });
+
+                aplicandoCodigoRemoto = false;
+
+            } catch (error) {
+                aplicandoCodigoRemoto = false;
+                console.error(
+                    "Error recibiendo el código:",
+                    error
+                );
+            }
+        }, error => {
+            console.error("Error leyendo el código:", error);
+            estado.textContent = "Error leyendo el código";
+        });
+
+        // Recibir los resultados de ejecución compartidos.
         onValue(consolaRef, snapshot => {
             const resultado = snapshot.val();
 
@@ -261,8 +260,8 @@ async function iniciarSala() {
             }
         });
 
-        estado.textContent = "Sala conectada";
-        console.log("Sala colaborativa iniciada.");
+        console.log("Sala conectada mediante Firebase.");
+
     } catch (error) {
         console.error("Error conectando con Firebase:", error);
         estado.textContent = "Error de conexión";
@@ -271,7 +270,7 @@ async function iniciarSala() {
     }
 }
 
-// EJECUTAR PYTHON Y COMPARTIR EL RESULTADO
+// EJECUTAR PYTHON
 boton.addEventListener("click", async () => {
     if (!pyodide || !editorView || ejecutando) return;
     if (!nombreInput.value.trim() || !auth.currentUser) return;
@@ -289,16 +288,11 @@ boton.addEventListener("click", async () => {
 
         const resultado = capturaSalida || "(Sin salida)";
 
-        salida.textContent = resultado;
-
         await set(consolaRef, {
             salida: resultado,
             nombre: nombreInput.value.trim(),
             fecha: Date.now()
         });
-
-        // Guardar también una copia del código ejecutado.
-        await set(codigoRef, codigo);
 
     } catch (error) {
         const mensaje = capturaSalida + String(error);
@@ -311,7 +305,10 @@ boton.addEventListener("click", async () => {
                 fecha: Date.now()
             });
         } catch (errorFirebase) {
-            console.error("Error compartiendo el resultado:", errorFirebase);
+            console.error(
+                "Error compartiendo el resultado:",
+                errorFirebase
+            );
         }
     } finally {
         ejecutando = false;
@@ -334,6 +331,6 @@ botonLimpiar.addEventListener("click", async () => {
     }
 });
 
-// ARRANCAR LOS DOS SISTEMAS
+// ARRANCAR
 iniciarPython();
 iniciarSala();
