@@ -1,0 +1,40 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Python colaborativo</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>Python colaborativo</h1>
+        <div class="usuario">
+            <input id="nombre" placeholder="Tu nombre" maxlength="30">
+            <span id="estado">Preparando Python...</span>
+        </div>
+    </header>
+
+    <main>
+        <section class="panel">
+            <h2>Código Python</h2>
+            <textarea id="codigo" spellcheck="false" disabled>nombre = input("¿Cómo te llamas? ")
+print("¡Hola,", nombre, "!")
+print("Bienvenido a la sala.")</textarea>
+            <button id="ejecutar" disabled>Preparando Python...</button>
+        </section>
+
+        <section class="panel">
+            <h2>Consola</h2>
+            <pre id="salida">La salida aparecerá aquí...</pre>
+            <input id="entrada" placeholder="Respuesta para input()" hidden>
+            <button id="enviar" hidden>Enviar respuesta</button>
+            <button id="limpiar">Limpiar consola</button>
+        </section>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.28.2/full/pyodide.js"></script>
+    <script type="module" src="script.js"></script>
+</body>
+</html>

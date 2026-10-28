@@ -1,0 +1,125 @@
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 24px;
+    background: #111827;
+    color: #f9fafb;
+    font-family: Arial, sans-serif;
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+h1 {
+    margin: 0;
+    font-size: 26px;
+}
+
+.usuario {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+main {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.panel {
+    background: #1f2937;
+    padding: 18px;
+    border-radius: 12px;
+    min-width: 0;
+}
+
+h2 {
+    margin-top: 0;
+    font-size: 18px;
+}
+
+textarea {
+    display: block;
+    width: 100%;
+    height: 380px;
+    padding: 14px;
+    resize: vertical;
+    background: #0b1120;
+    color: #d1fae5;
+    border: 1px solid #374151;
+    border-radius: 8px;
+    font: 15px/1.6 Consolas, monospace;
+    tab-size: 4;
+}
+
+pre {
+    min-height: 380px;
+    padding: 14px;
+    background: #0b1120;
+    color: #86efac;
+    border-radius: 8px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    overflow-y: auto;
+}
+
+input, button {
+    padding: 10px 14px;
+    border: 1px solid #4b5563;
+    border-radius: 7px;
+    font-size: 14px;
+}
+
+input {
+    max-width: 100%;
+}
+
+button {
+    margin-top: 12px;
+    background: #7c3aed;
+    color: white;
+    border: none;
+    cursor: pointer;
+}
+
+button:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+#limpiar {
+    background: #374151;
+    margin-left: 8px;
+}
+
+#estado {
+    color: #a7f3d0;
+    font-size: 13px;
+}
+
+@media (max-width: 750px) {
+    body {
+        padding: 14px;
+    }
+
+    main {
+        grid-template-columns: 1fr;
+    }
+
+    textarea, pre {
+        height: 280px;
+        min-height: 280px;
+    }
+}
