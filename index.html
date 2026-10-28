@@ -19,10 +19,12 @@
     <main>
         <section class="panel">
             <h2>Código Python</h2>
-            <textarea id="codigo" spellcheck="false" disabled>nombre = input("¿Cómo te llamas? ")
-print("¡Hola,", nombre, "!")
-print("Bienvenido a la sala.")</textarea>
-            <button id="ejecutar" disabled>Preparando Python...</button>
+
+            <div id="codigo" class="editor-bloqueado"></div>
+
+            <button id="ejecutar" disabled>
+                Preparando Python...
+            </button>
         </section>
 
         <section class="panel">
@@ -35,6 +37,24 @@ print("Bienvenido a la sala.")</textarea>
     </main>
 
     <script src="https://cdn.jsdelivr.net/pyodide/v0.28.2/full/pyodide.js"></script>
+    
+
+<script type="importmap">
+{
+  "imports": {
+    "yjs": "https://esm.sh/yjs@13.6.33",
+    "y-webrtc": "https://esm.sh/y-webrtc@10.3.0?external=yjs",
+    "codemirror": "https://esm.sh/codemirror@6.0.1?external=@codemirror/state,@codemirror/view,@codemirror/language",
+    "@codemirror/state": "https://esm.sh/@codemirror/state@6.5.2",
+    "@codemirror/view": "https://esm.sh/@codemirror/view@6.43.15?external=@codemirror/state",
+    "@codemirror/language": "https://esm.sh/@codemirror/language?external=@codemirror/state,@codemirror/view",
+    "@codemirror/lang-python": "https://esm.sh/@codemirror/lang-python@6.2.1?external=@codemirror/state,@codemirror/language",
+    "y-codemirror.next": "https://esm.sh/y-codemirror.next@0.3.5?external=yjs,@codemirror/state,@codemirror/view"
+  }
+}
+</script>
+
+
     <script type="module" src="script.js"></script>
 </body>
 </html>
