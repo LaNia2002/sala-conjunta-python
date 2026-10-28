@@ -1,0 +1,13 @@
+
+{
+  "name": "sala-conjunta-servidor",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node node_modules/y-websocket/bin/server.js"
+  },
+  "dependencies": {
+    "y-websocket": "1.5.4",
+    "yjs": "13.6.33"
+  }
+}
