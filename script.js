@@ -1,4 +1,3 @@
-
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
 import {
     getAuth,
@@ -153,6 +152,13 @@ async function iniciarSala() {
         // Documento colaborativo compartido entre participantes.
         ydoc = new Y.Doc();
         ytext = ydoc.getText("codigo-python");
+
+        ytext.observe(() => {
+    console.log(
+        "Código recibido o modificado:",
+        ytext.toString()
+    );
+});
 
         provider = new WebrtcProvider(
             "sala-conjunta-python-publica",
