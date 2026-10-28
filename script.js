@@ -9,23 +9,20 @@ import {
 import {
     getDatabase,
     ref,
+    get,
     set,
     onValue
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-database.js";
 
-import {
-    EditorView,
-    basicSetup
-} from "codemirror";
+import * as Y from "yjs";
+import { WebsocketProvider } from "y-websocket";
+import { yCollab } from "y-codemirror.next";
 
-import {
-    EditorState,
-    Compartment
-} from "@codemirror/state";
-
+import { EditorView, basicSetup } from "codemirror";
+import { EditorState, Compartment } from "@codemirror/state";
 import { python } from "@codemirror/lang-python";
 
-// CONFIGURACIÓN FIREBASE
+// FIREBASE
 const firebaseConfig = {
     apiKey: "AIzaSyDOvQFsTQXnn8moUanXwM8ODmoyIoC2XMg",
     authDomain: "sala-conjunta-python.firebaseapp.com",
@@ -51,9 +48,20 @@ const botonLimpiar = document.getElementById("limpiar");
 const entrada = document.getElementById("entrada");
 const botonEnviar = document.getElementById("enviar");
 
-// REFERENCIAS COMPARTIDAS
+// FIREBASE: CÓDIGO Y CONSOLA
 const codigoRef = ref(db, "sala/codigo");
 const consolaRef = ref(db, "sala/consola");
+
+// YJS + WEBSOCKET
+const documento = new Y.Doc();
+
+const proveedor = new WebsocketProvider(
+    "wss://sala-conjunta-python.onrender.com",
+    "sala-conjunta-python-principal",
+    documento
+);
+
+const textoCompartido = documento.getText("codigo");
 
 // ESTADO
 let pyodide;
@@ -62,7 +70,8 @@ let ejecutando = false;
 let pythonListo = false;
 let capturaSalida = "";
 let temporizadorGuardar;
-let aplicandoCodigoRemoto = false;
+let colaboracionLista = false;
+let aplicandoCodigoInicial = false;
 
 const editorEditable = new Compartment();
 
@@ -71,7 +80,7 @@ const codigoInicial =
     'print("¡Hola,", nombre, "!")\\n' +
     'print("Bienvenido a la sala.")';
 
-// CONTROL DE PERMISOS
+// PERMISOS
 function actualizarPermisos() {
     const tieneNombre = nombreInput.value.trim().length > 0;
     const puedeEditar = tieneNombre && Boolean(auth.currentUser);
@@ -89,8 +98,7 @@ function actualizarPermisos() {
         );
     }
 
-    boton.disabled =
-        !puedeEditar || !pythonListo || ejecutando;
+    boton.disabled = !puedeEditar || !pythonListo || ejecutando;
 
     if (ejecutando) {
         boton.textContent = "Ejecutando...";
@@ -106,6 +114,8 @@ function actualizarPermisos() {
         estado.textContent = "Escribe tu nombre para participar";
     } else if (!pythonListo) {
         estado.textContent = "Cargando Python...";
+    } else if (!colaboracionLista) {
+        estado.textContent = "Conectando editor colaborativo...";
     } else {
         estado.textContent = "Conectado a la sala";
     }
@@ -116,8 +126,6 @@ nombreInput.addEventListener("input", actualizarPermisos);
 // INICIAR PYTHON
 async function iniciarPython() {
     try {
-        estado.textContent = "Cargando Python...";
-
         pyodide = await loadPyodide();
 
         pyodide.setStdout({
@@ -147,11 +155,31 @@ async function iniciarPython() {
     }
 }
 
-// CREAR EDITOR Y CONECTAR FIREBASE
+// GUARDAR COPIA DEL CÓDIGO EN FIREBASE
+function guardarCopiaFirebase() {
+    if (!colaboracionLista || aplicandoCodigoInicial) return;
+
+    clearTimeout(temporizadorGuardar);
+
+    temporizadorGuardar = setTimeout(async () => {
+        try {
+            await set(codigoRef, textoCompartido.toString());
+        } catch (error) {
+            console.error("Error guardando el código:", error);
+        }
+    }, 600);
+}
+
+// OBSERVAR CAMBIOS COLABORATIVOS
+textoCompartido.observe(() => {
+    if (editorView) {
+        guardarCopiaFirebase();
+    }
+});
+
+// CREAR EDITOR Y CONECTAR SERVICIOS
 async function iniciarSala() {
     try {
-        estado.textContent = "Conectando con Firebase...";
-
         await signInAnonymously(auth);
 
         editorView = new EditorView({
@@ -160,37 +188,13 @@ async function iniciarSala() {
                 extensions: [
                     basicSetup,
                     python(),
+
                     editorEditable.of(
                         EditorView.editable.of(false)
                     ),
 
-                    // Guardar los cambios locales en Firebase.
-                    EditorView.updateListener.of(update => {
-                        if (
-                            !update.docChanged ||
-                            aplicandoCodigoRemoto ||
-                            !auth.currentUser ||
-                            !nombreInput.value.trim()
-                        ) {
-                            return;
-                        }
-
-                        clearTimeout(temporizadorGuardar);
-
-                        temporizadorGuardar = setTimeout(async () => {
-                            try {
-                                await set(
-                                    codigoRef,
-                                    editorView.state.doc.toString()
-                                );
-                            } catch (error) {
-                                console.error(
-                                    "Error guardando el código:",
-                                    error
-                                );
-                            }
-                        }, 400);
-                    })
+                    // Sincronización colaborativa mediante Yjs.
+                    yCollab(textoCompartido, proveedor.awareness)
                 ]
             }),
             parent: editorDiv
@@ -198,58 +202,54 @@ async function iniciarSala() {
 
         actualizarPermisos();
 
-        // Recibir el código de todos los participantes.
-        onValue(codigoRef, async snapshot => {
-            try {
-                const codigoGuardado = snapshot.val();
+        // Estado de la conexión WebSocket.
+        proveedor.on("status", ({ status }) => {
+            console.log("WebSocket:", status);
 
-                // Si todavía no existe código, crear uno inicial.
-                if (
-                    codigoGuardado === null &&
-                    auth.currentUser
-                ) {
-                    await set(codigoRef, codigoInicial);
-                    return;
-                }
-
-                if (typeof codigoGuardado !== "string") {
-                    return;
-                }
-
-                // No actualizar si el editor ya tiene ese código.
-                if (
-                    editorView.state.doc.toString() ===
-                    codigoGuardado
-                ) {
-                    return;
-                }
-
-                // Aplicar el cambio remoto sin volver a guardarlo.
-                aplicandoCodigoRemoto = true;
-
-                editorView.dispatch({
-                    changes: {
-                        from: 0,
-                        to: editorView.state.doc.length,
-                        insert: codigoGuardado
-                    }
-                });
-
-                aplicandoCodigoRemoto = false;
-
-            } catch (error) {
-                aplicandoCodigoRemoto = false;
-                console.error(
-                    "Error recibiendo el código:",
-                    error
-                );
+            if (status === "disconnected") {
+                estado.textContent = "Reconectando colaboración...";
             }
-        }, error => {
-            console.error("Error leyendo el código:", error);
-            estado.textContent = "Error leyendo el código";
+
+            actualizarPermisos();
         });
 
-        // Recibir los resultados de ejecución compartidos.
+        // Cuando Yjs termina la sincronización inicial,
+        // recuperar el código guardado si la sala está vacía.
+        proveedor.on("sync", async sincronizado => {
+            if (!sincronizado) return;
+
+            colaboracionLista = true;
+            actualizarPermisos();
+
+            if (textoCompartido.length === 0) {
+                try {
+                    const snapshot = await get(codigoRef);
+                    const guardado = snapshot.val();
+
+                    const codigo = (
+                        typeof guardado === "string" &&
+                        guardado.length > 0
+                    ) ? guardado : codigoInicial;
+
+                    // Evita insertar el código si llegó contenido
+                    // colaborativo mientras se consultaba Firebase.
+                    if (textoCompartido.length === 0) {
+                        aplicandoCodigoInicial = true;
+                        textoCompartido.insert(0, codigo);
+                        aplicandoCodigoInicial = false;
+
+                        await set(codigoRef, textoCompartido.toString());
+                    }
+                } catch (error) {
+                    aplicandoCodigoInicial = false;
+                    console.error("Error recuperando el código:", error);
+                }
+            }
+
+            console.log("Editor colaborativo sincronizado.");
+        });
+
+        // CONSOLA COMPARTIDA MEDIANTE FIREBASE
         onValue(consolaRef, snapshot => {
             const resultado = snapshot.val();
 
@@ -261,12 +261,10 @@ async function iniciarSala() {
         });
 
         console.log("Sala conectada mediante Firebase.");
-
     } catch (error) {
-        console.error("Error conectando con Firebase:", error);
+        console.error("Error conectando con la sala:", error);
         estado.textContent = "Error de conexión";
-        salida.textContent =
-            "No se pudo conectar a la sala:\n" + error.message;
+        salida.textContent = "No se pudo conectar a la sala:\n" + error.message;
     }
 }
 
@@ -286,14 +284,11 @@ boton.addEventListener("click", async () => {
 
         await pyodide.runPythonAsync(codigo);
 
-        const resultado = capturaSalida || "(Sin salida)";
-
         await set(consolaRef, {
-            salida: resultado,
+            salida: capturaSalida || "(Sin salida)",
             nombre: nombreInput.value.trim(),
             fecha: Date.now()
         });
-
     } catch (error) {
         const mensaje = capturaSalida + String(error);
         salida.textContent = mensaje;
@@ -305,10 +300,7 @@ boton.addEventListener("click", async () => {
                 fecha: Date.now()
             });
         } catch (errorFirebase) {
-            console.error(
-                "Error compartiendo el resultado:",
-                errorFirebase
-            );
+            console.error("Error compartiendo el resultado:", errorFirebase);
         }
     } finally {
         ejecutando = false;
@@ -316,7 +308,7 @@ boton.addEventListener("click", async () => {
     }
 });
 
-// LIMPIAR LA CONSOLA COMPARTIDA
+// LIMPIAR CONSOLA COMPARTIDA
 botonLimpiar.addEventListener("click", async () => {
     if (!auth.currentUser) return;
 
@@ -331,6 +323,6 @@ botonLimpiar.addEventListener("click", async () => {
     }
 });
 
-// ARRANCAR
+// INICIAR
 iniciarPython();
 iniciarSala();
